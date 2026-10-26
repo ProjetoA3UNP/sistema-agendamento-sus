@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CIDADAO
+  ATENDENTE
+  MEDICO
+  GESTOR
+}
+
+enum DistritoSanitario {
+  NORTE
+  SUL
+  LESTE
+  OESTE
+}
+
+enum Turno {
+  MANHA
+  TARDE
+}
+
+enum StatusVaga {
+  DISPONIVEL
+  RESERVADA
+  BLOQUEADA
+}
+
+enum StatusAgendamento {
+  AGENDADO
+  CHECK_IN
+  EM_ATENDIMENTO
+  FINALIZADO
+  CANCELADO
+  FALTA
+}
+
+model Usuario {
+  id                String            @id @default(uuid())
+  nome              String
+  cpf               String            @unique @db.VarChar(14)
+  cartaoSus         String?           @unique @db.VarChar(18)
+  email             String            @unique @db.VarChar(191)
+  senha             String            @db.VarChar(255)
+  perfil            Role              @default(CIDADAO)
+  telefone          String?           @db.VarChar(20)
+  bairro            String?           @db.VarChar(100)
+  dataNascimento    DateTime?         @db.Date
+  aceitouTermosLgpd Boolean           @default(false)
+  termosLgpdEm      DateTime?
+  ativo             Boolean           @default(true)
+  criadoEm          DateTime          @default(now())
+  atualizadoEm      DateTime          @updatedAt
+
+  agendamentos      Agendamento[]     @relation("PacienteAgendamentos")
+  vagasAtendidas    Vaga[]            @relation("MedicoVagas")
+  logsAuditoria     LogAuditoria[]
+
+  @@map("usuarios")
+}
+
+model Ubs {
+  id                String             @id @default(uuid())
+  nome              String             @db.VarChar(150)
+  cnes              String?            @unique @db.VarChar(20)
+  logradouro        String             @db.VarChar(200)
+  numero            String?            @db.VarChar(20)
+  bairro            String             @db.VarChar(100)
+  distritoSanitario DistritoSanitario
+  telefone          String?            @db.VarChar(20)
+  horarioAbertura   String             @default("07:00") @db.VarChar(5)
+  horarioFechamento String             @default("17:00") @db.VarChar(5)
+  ativo             Boolean            @default(true)
+  criadoEm          DateTime           @default(now())
+  atualizadoEm      DateTime           @updatedAt
+
+  especialidades    UbsEspecialidade[]
+  vagas             Vaga[]
+
+  @@index([distritoSanitario, bairro])
+  @@map("ubss")
+}
+
+model Especialidade {
+  id          String             @id @default(uuid())
+  nome        String             @unique @db.VarChar(100)
+  descricao   String?            @db.Text
+  ativo       Boolean            @default(true)
+  criadoEm    DateTime           @default(now())
+
+  ubss        UbsEspecialidade[]
+  vagas       Vaga[]
+
+  @@map("especialidades")
+}
+
+model UbsEspecialidade {
+  ubsId           String
+  especialidadeId String
+
+  ubs             Ubs           @relation(fields: [ubsId], references: [id], onDelete: Cascade)
+  especialidade   Especialidade @relation(fields: [especialidadeId], references: [id], onDelete: Cascade)
+
+  @@id([ubsId, especialidadeId])
+  @@map("ubs_especialidades")
+}
+
+model Vaga {
+  id              String         @id @default(uuid())
+  ubsId           String
+  especialidadeId String
+  medicoId        String?
+  data            DateTime       @db.Date
+  turno           Turno
+  horarioInicio   String         @db.VarChar(5)
+  horarioFim      String         @db.VarChar(5)
+  status          StatusVaga     @default(DISPONIVEL)
+  criadoEm        DateTime       @default(now())
+  atualizadoEm    DateTime       @updatedAt
+
+  ubs             Ubs            @relation(fields: [ubsId], references: [id], onDelete: Restrict)
+  especialidade   Especialidade  @relation(fields: [especialidadeId], references: [id], onDelete: Restrict)
+  medico          Usuario?       @relation("MedicoVagas", fields: [medicoId], references: [id], onDelete: SetNull)
+  agendamento     Agendamento?
+
+  @@index([ubsId, data, especialidadeId, status], name: "idx_busca_vagas")
+  @@index([status, data], name: "idx_status_data")
+  @@map("vagas")
+}
+
+model Agendamento {
+  id                 String            @id @default(uuid())
+  codigoProtocolo    String            @unique @db.VarChar(30)
+  qrCodeToken        String            @unique @db.VarChar(64)
+  vagaId             String            @unique
+  pacienteId         String
+  status             StatusAgendamento @default(AGENDADO)
+  motivoCancelamento String?           @db.VarChar(255)
+  canceladoEm        DateTime?
+  checkInEm          DateTime?
+  finalizadoEm       DateTime?
+  criadoEm           DateTime          @default(now())
+  atualizadoEm       DateTime          @updatedAt
+
+  vaga               Vaga              @relation(fields: [vagaId], references: [id], onDelete: Restrict)
+  paciente           Usuario           @relation("PacienteAgendamentos", fields: [pacienteId], references: [id], onDelete: Restrict)
+
+  @@index([pacienteId, status], name: "idx_paciente_agendamentos")
+  @@index([codigoProtocolo], name: "idx_codigo_protocolo")
+  @@index([qrCodeToken], name: "idx_qrcode_token")
+  @@map("agendamentos")
+}
+
+model LogAuditoria {
+  id           String    @id @default(uuid())
+  usuarioId    String?
+  acao         String    @db.VarChar(60)
+  entidade     String    @db.VarChar(60)
+  entidadeId   String?   @db.VarChar(64)
+  detalhesJson String?   @db.Text
+  ip           String?   @db.VarChar(45)
+  criadoEm     DateTime  @default(now())
+
+  usuario      Usuario?  @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@index([usuarioId, criadoEm], name: "idx_usuario_auditoria")
+  @@index([entidade, entidadeId], name: "idx_entidade_auditoria")
+  @@map("logs_auditoria")
+}
