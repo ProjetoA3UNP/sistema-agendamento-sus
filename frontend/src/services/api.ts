@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+// Sanitizar a URL base: garante que sempre aponte para /api mesmo se esquecerem a barra
+const rawUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const baseURL = rawUrl.endsWith('/api') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/api`;
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
+  baseURL,
   headers: {
     'Content-Type': 'application/json',
   },
