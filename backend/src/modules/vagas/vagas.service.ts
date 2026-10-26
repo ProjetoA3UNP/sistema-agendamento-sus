@@ -3,6 +3,7 @@ import { StatusVaga, Turno } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { AberturaBlocoVagasDto } from './dto/abertura-bloco-vagas.dto.js';
+import { semearBanco } from './vagas-seed.helper.js';
 
 @Injectable()
 export class VagasService {
@@ -10,6 +11,10 @@ export class VagasService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
   ) {}
+
+  async popularVagasDemonstracao() {
+    return semearBanco(this.prisma);
+  }
 
   async buscarDisponiveis(
     ubsId?: string,

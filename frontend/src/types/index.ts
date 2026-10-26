@@ -46,6 +46,7 @@ export interface Ubs {
   horarioAbertura: string;
   horarioFechamento: string;
   ativo: boolean;
+  totalVagasDisponiveis?: number;
   especialidades?: Array<{
     especialidade: Especialidade;
   }>;

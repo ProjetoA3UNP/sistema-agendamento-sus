@@ -6,12 +6,17 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  HeartPulse,
   Hospital,
   MapPin,
   Stethoscope,
   AlertCircle,
   AlertTriangle,
+  FlaskConical,
+  Info,
+  Sparkles,
+  Baby,
+  Smile,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.js';
 import { api } from '../services/api.js';
@@ -40,49 +45,91 @@ export const AgendamentoWizard: React.FC = () => {
 
   // Estados de Carregamento & Erro
   const [loading, setLoading] = useState(false);
+  const [loadingUbss, setLoadingUbss] = useState(false);
   const [loadingVagas, setLoadingVagas] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [tempoResposta, setTempoResposta] = useState<number | null>(null);
 
-  // 1. Carregar Especialidades e UBSs iniciais
+  // 1. Carregar Especialidades iniciais
   useEffect(() => {
-    async function carregarDadosIniciais() {
+    async function carregarEspecialidades() {
       setLoading(true);
       try {
-        const [resEsp, resUbs] = await Promise.all([
-          api.get('/ubs/especialidades'),
-          api.get('/ubs'),
-        ]);
-
+        const resEsp = await api.get('/ubs/especialidades');
         setEspecialidades(resEsp.data);
-        setUbss(resUbs.data);
 
         // Pré-selecionar Clínico Geral como padrão
         if (resEsp.data.length > 0) {
           setEspecialidadeSelecionada(resEsp.data[0]);
         }
-
-        // Sugerir UBS do bairro do cidadão
-        if (user?.bairro && resUbs.data.length > 0) {
-          const ubsBairro = resUbs.data.find(
-            (u: Ubs) => u.bairro.toLowerCase() === user.bairro?.toLowerCase(),
-          );
-          if (ubsBairro) setUbsSelecionada(ubsBairro);
-          else setUbsSelecionada(resUbs.data[0]);
-        } else if (resUbs.data.length > 0) {
-          setUbsSelecionada(resUbs.data[0]);
-        }
       } catch (err) {
-        console.error('Erro ao carregar dados:', err);
+        console.error('Erro ao carregar especialidades:', err);
       } finally {
         setLoading(false);
       }
     }
 
-    carregarDadosIniciais();
-  }, [user]);
+    carregarEspecialidades();
+  }, []);
 
-  // 2. Quando avançar para a Etapa 2, carregar vagas disponíveis para a UBS e Especialidade
+  // 2. Quando a especialidade mudar, carregar UBSs com contagem real de vagas disponíveis
+  useEffect(() => {
+    if (!especialidadeSelecionada) return;
+
+    let ativo = true;
+    async function carregarUbssComVagas() {
+      setLoadingUbss(true);
+      try {
+        const resUbs = await api.get('/ubs', {
+          params: { especialidadeId: especialidadeSelecionada?.id },
+        });
+
+        if (ativo) {
+          const listaUbss: Ubs[] = resUbs.data;
+          setUbss(listaUbss);
+
+          // Se a UBS atualmente selecionada não tem vagas para esta especialidade,
+          // sugerir automaticamente uma UBS com vagas disponíveis (preferindo a do bairro)
+          const ubsAtual = listaUbss.find((u) => u.id === ubsSelecionada?.id);
+          const ubsAtualTemVagas = (ubsAtual?.totalVagasDisponiveis ?? 0) > 0;
+
+          if (!ubsAtual || !ubsAtualTemVagas) {
+            // Tenta achar UBS do bairro que tenha vagas
+            const ubsBairroComVagas = listaUbss.find(
+              (u) =>
+                user?.bairro &&
+                u.bairro.toLowerCase() === user.bairro.toLowerCase() &&
+                (u.totalVagasDisponiveis ?? 0) > 0,
+            );
+
+            // Ou a primeira UBS que tenha vagas
+            const primeiraComVagas = listaUbss.find(
+              (u) => (u.totalVagasDisponiveis ?? 0) > 0,
+            );
+
+            if (ubsBairroComVagas) {
+              setUbsSelecionada(ubsBairroComVagas);
+            } else if (primeiraComVagas) {
+              setUbsSelecionada(primeiraComVagas);
+            } else if (listaUbss.length > 0) {
+              setUbsSelecionada(listaUbss[0]);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao carregar disponibilidade de UBSs:', err);
+      } finally {
+        if (ativo) setLoadingUbss(false);
+      }
+    }
+
+    carregarUbssComVagas();
+    return () => {
+      ativo = false;
+    };
+  }, [especialidadeSelecionada, user?.bairro]);
+
+  // 3. Quando avançar para a Etapa 2, carregar vagas disponíveis para a UBS e Especialidade
   useEffect(() => {
     if (etapa === 2 && ubsSelecionada && especialidadeSelecionada) {
       async function carregarVagas() {
@@ -127,11 +174,33 @@ export const AgendamentoWizard: React.FC = () => {
   const vagasManha = vagasDaData.filter((v) => v.turno === 'MANHA');
   const vagasTarde = vagasDaData.filter((v) => v.turno === 'TARDE');
 
-  // UBSs filtradas por distrito
-  const ubssFiltradas = ubss.filter((u) => {
-    if (filtroDistrito === 'TODOS') return true;
-    return u.distritoSanitario === filtroDistrito;
-  });
+  // UBSs filtradas por distrito e ordenadas por disponibilidade (unidades com vagas primeiro)
+  const ubssFiltradas = ubss
+    .filter((u) => {
+      if (filtroDistrito === 'TODOS') return true;
+      return u.distritoSanitario === filtroDistrito;
+    })
+    .sort((a, b) => {
+      // 1. Unidades com vagas abertas sempre vêm no topo
+      const vagasA = a.totalVagasDisponiveis ?? 0;
+      const vagasB = b.totalVagasDisponiveis ?? 0;
+      if (vagasA > 0 && vagasB === 0) return -1;
+      if (vagasA === 0 && vagasB > 0) return 1;
+
+      // 2. Se ambas têm vagas, priorizar a UBS de referência do paciente
+      const ehBairroA = user?.bairro && a.bairro.toLowerCase() === user.bairro.toLowerCase();
+      const ehBairroB = user?.bairro && b.bairro.toLowerCase() === user.bairro.toLowerCase();
+      if (ehBairroA && !ehBairroB) return -1;
+      if (!ehBairroA && ehBairroB) return 1;
+
+      // 3. Maior quantidade de vagas
+      if (vagasA !== vagasB) return vagasB - vagasA;
+
+      return a.nome.localeCompare(b.nome);
+    });
+
+  const totalVagasMunicipio = ubss.reduce((acc, u) => acc + (u.totalVagasDisponiveis ?? 0), 0);
+  const ubssComVagas = ubss.filter((u) => (u.totalVagasDisponiveis ?? 0) > 0).length;
 
   // Confirmação final da consulta (Lock Pessimista no Backend)
   const handleConfirmarAgendamento = async () => {
@@ -152,7 +221,6 @@ export const AgendamentoWizard: React.FC = () => {
       const msg = err.response?.data?.message || 'Erro ao confirmar agendamento.';
 
       if (status === 409) {
-        // Concorrência: Vaga ocupada simultaneamente por outro paciente
         setErro('Atenção: Esta vaga acabou de ser reservada por outro paciente no mesmo instante. Por favor, volte e selecione outro horário.');
       } else {
         setErro(msg);
@@ -160,6 +228,24 @@ export const AgendamentoWizard: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper para renderizar ícone da especialidade
+  const renderIconeEspecialidade = (nome: string) => {
+    const n = nome.toLowerCase();
+    if (n.includes('exame') || n.includes('coleta') || n.includes('laborat')) {
+      return <FlaskConical className="w-5 h-5" />;
+    }
+    if (n.includes('odonto')) {
+      return <Smile className="w-5 h-5" />;
+    }
+    if (n.includes('natal') || n.includes('gesta') || n.includes('obste')) {
+      return <Baby className="w-5 h-5" />;
+    }
+    if (n.includes('enferm')) {
+      return <ShieldCheck className="w-5 h-5" />;
+    }
+    return <Stethoscope className="w-5 h-5" />;
   };
 
   return (
@@ -210,7 +296,7 @@ export const AgendamentoWizard: React.FC = () => {
       )}
 
       {/* ========================================================== */}
-      {/* ETAPA 1: ESCOLHA DE ESPECIALIDADE E UBS                    */}
+      {/* ETAPA 1: ESCOLHA DE ESPECIALIDADE E UBS COM VAGAS AO VIVO   */}
       {/* ========================================================== */}
       {etapa === 1 && (
         <div className="space-y-6">
@@ -219,35 +305,50 @@ export const AgendamentoWizard: React.FC = () => {
             <div>
               <h2 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
                 <Stethoscope className="w-5 h-5 text-sus-primary" />
-                <span>1. Escolha a Especialidade de Atendimento</span>
+                <span>1. Escolha o Tipo de Atendimento ou Exame</span>
               </h2>
               <p className="text-xs text-slate-500">
-                Selecione o tipo de consulta que você precisa realizar.
+                Selecione a especialidade de consulta ou coleta de exames que deseja realizar na rede municipal.
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {especialidades.map((esp) => {
                 const selecionado = especialidadeSelecionada?.id === esp.id;
+                const ehExame = esp.nome.toLowerCase().includes('exame');
+
                 return (
                   <button
                     key={esp.id}
                     type="button"
                     onClick={() => setEspecialidadeSelecionada(esp)}
-                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 relative ${
                       selecionado
-                        ? 'border-sus-primary bg-blue-50/60 ring-2 ring-sus-primary/30'
+                        ? ehExame
+                          ? 'border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/30'
+                          : 'border-sus-primary bg-blue-50/60 ring-2 ring-sus-primary/30'
                         : 'border-slate-200 hover:border-slate-300 bg-white'
                     }`}
                   >
+                    {ehExame && (
+                      <span className="absolute top-2.5 right-2.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        Coleta UBS
+                      </span>
+                    )}
+
                     <div
                       className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                        selecionado ? 'bg-sus-primary text-white' : 'bg-slate-100 text-slate-500'
+                        selecionado
+                          ? ehExame
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-sus-primary text-white'
+                          : 'bg-slate-100 text-slate-500'
                       }`}
                     >
-                      <HeartPulse className="w-5 h-5" />
+                      {renderIconeEspecialidade(esp.nome)}
                     </div>
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 pr-14">
                       <strong className="block text-sm text-slate-800">{esp.nome}</strong>
                       <p className="text-[11px] text-slate-500 leading-snug line-clamp-2">
                         {esp.descricao}
@@ -257,9 +358,27 @@ export const AgendamentoWizard: React.FC = () => {
                 );
               })}
             </div>
+
+            {/* Aviso Educativo sobre Exames no SUS */}
+            {especialidadeSelecionada?.nome.toLowerCase().includes('exame') && (
+              <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <strong className="font-semibold block">
+                    Exames disponíveis para agendamento direto na UBS:
+                  </strong>
+                  <p className="text-[11px] leading-relaxed text-emerald-800">
+                    Coletas laboratoriais de sangue em jejum, fezes, urina, preventivo do colo do útero (Papanicolau), testes rápidos (HIV, Sífilis, Hepatites B e C) e curva glicêmica.
+                  </p>
+                  <p className="text-[10px] text-emerald-700 italic">
+                    *Exames especializados de imagem de alta complexidade (Ressonância, Tomografia, Ultrassom com doppler) continuam exigindo consulta médica prévia e encaminhamento via SISREG.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* 1.2 Escolha da Unidade Básica de Saúde (UBS) */}
+          {/* 1.2 Escolha da Unidade Básica de Saúde (UBS) com Indicador de Vagas */}
           <div className="card-sus space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -268,7 +387,7 @@ export const AgendamentoWizard: React.FC = () => {
                   <span>2. Escolha a Unidade Básica de Saúde (UBS)</span>
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Sugerimos a unidade mais próxima ao seu bairro cadastrado ({user?.bairro}).
+                  Veja abaixo quais unidades possuem horários livres em tempo real para não perder tempo.
                 </p>
               </div>
 
@@ -278,7 +397,7 @@ export const AgendamentoWizard: React.FC = () => {
                 <select
                   value={filtroDistrito}
                   onChange={(e) => setFiltroDistrito(e.target.value)}
-                  className="px-2 py-1 rounded-md border border-slate-300 text-xs bg-white focus:ring-1 focus:ring-sus-primary"
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs bg-white focus:ring-1 focus:ring-sus-primary"
                 >
                   <option value="TODOS">Todos os Distritos</option>
                   <option value="SUL">Distrito Sul</option>
@@ -289,53 +408,122 @@ export const AgendamentoWizard: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
-              {ubssFiltradas.map((ubs) => {
-                const selecionado = ubsSelecionada?.id === ubs.id;
-                const eUbsDoBairro = user?.bairro && ubs.bairro.toLowerCase() === user.bairro.toLowerCase();
-
-                return (
-                  <button
-                    key={ubs.id}
-                    type="button"
-                    onClick={() => setUbsSelecionada(ubs)}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer space-y-1.5 relative ${
-                      selecionado
-                        ? 'border-sus-primary bg-blue-50/60 ring-2 ring-sus-primary/30'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
-                  >
-                    {eUbsDoBairro && (
-                      <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                        Sua UBS de Referência
-                      </span>
-                    )}
-
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
-                        Distrito {ubs.distritoSanitario}
-                      </span>
-                    </div>
-
-                    <strong className="block text-sm text-slate-800">{ubs.nome}</strong>
-
-                    <p className="text-xs text-slate-500 flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span className="truncate">{ubs.logradouro}, {ubs.bairro}</span>
-                    </p>
-                  </button>
-                );
-              })}
+            {/* Banner de Disponibilidade Geral */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-slate-600">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  Disponibilidade para <strong>{especialidadeSelecionada?.nome}</strong> em Natal:
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold bg-emerald-100 text-emerald-800 text-[11px]">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                  {totalVagasMunicipio} vagas abertas
+                </span>
+                <span className="text-[11px] text-slate-500">em {ubssComVagas} unidades</span>
+              </div>
             </div>
+
+            {/* Lista de UBSs */}
+            {loadingUbss ? (
+              <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+                <div className="w-6 h-6 border-2 border-sus-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+                <p>Consultando disponibilidade nas unidades de saúde...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
+                {ubssFiltradas.map((ubs) => {
+                  const selecionado = ubsSelecionada?.id === ubs.id;
+                  const eUbsDoBairro = user?.bairro && ubs.bairro.toLowerCase() === user.bairro.toLowerCase();
+                  const totalVagas = ubs.totalVagasDisponiveis ?? 0;
+                  const temVagas = totalVagas > 0;
+
+                  return (
+                    <button
+                      key={ubs.id}
+                      type="button"
+                      onClick={() => setUbsSelecionada(ubs)}
+                      className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer space-y-2 relative flex flex-col justify-between ${
+                        selecionado
+                          ? 'border-sus-primary bg-blue-50/70 ring-2 ring-sus-primary/30 shadow-sm'
+                          : temVagas
+                            ? 'border-slate-200 hover:border-sus-primary/50 bg-white'
+                            : 'border-slate-200 bg-slate-50/80 opacity-75'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                            Distrito {ubs.distritoSanitario}
+                          </span>
+
+                          {eUbsDoBairro && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              Sua UBS de Referência
+                            </span>
+                          )}
+                        </div>
+
+                        <strong className="block text-sm text-slate-800">{ubs.nome}</strong>
+
+                        <p className="text-xs text-slate-500 flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate">{ubs.logradouro}, {ubs.bairro}</span>
+                        </p>
+                      </div>
+
+                      {/* Indicador Visual Imediato de Vagas */}
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                        {temVagas ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            {totalVagas} {totalVagas === 1 ? 'vaga aberta' : 'vagas abertas'}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                            Sem vagas no momento
+                          </span>
+                        )}
+
+                        {selecionado && (
+                          <span className="text-[11px] font-bold text-sus-primary">
+                            Selecionada ✓
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Botão de Avançar */}
-          <div className="flex justify-end pt-2">
+          {/* Botão de Avançar com Feedback Claro */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+            <div>
+              {ubsSelecionada && (ubsSelecionada.totalVagasDisponiveis ?? 0) === 0 ? (
+                <p className="text-xs text-amber-600 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+                  <span>A unidade selecionada está sem vagas. Escolha outra UBS com vagas abertas para avançar.</span>
+                </p>
+              ) : ubsSelecionada ? (
+                <p className="text-xs text-slate-500">
+                  Unidade selecionada: <strong className="text-slate-700">{ubsSelecionada.nome}</strong> ({ubsSelecionada.totalVagasDisponiveis} vagas)
+                </p>
+              ) : null}
+            </div>
+
             <button
               type="button"
-              disabled={!especialidadeSelecionada || !ubsSelecionada}
+              disabled={
+                !especialidadeSelecionada ||
+                !ubsSelecionada ||
+                (ubsSelecionada.totalVagasDisponiveis ?? 0) === 0
+              }
               onClick={() => setEtapa(2)}
-              className="btn-primary py-3 px-6 flex items-center gap-2 text-sm sm:text-base font-semibold shadow-md"
+              className="btn-primary py-3 px-6 flex items-center justify-center gap-2 text-sm sm:text-base font-semibold shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span>Avançar para Escolha de Data e Horário</span>
               <ChevronRight className="w-5 h-5" />
@@ -371,10 +559,10 @@ export const AgendamentoWizard: React.FC = () => {
               <div>
                 <h2 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
                   <Calendar className="w-5 h-5 text-sus-primary" />
-                  <span>Escolha a Data e o Horário da Consulta</span>
+                  <span>Escolha a Data e o Horário do Atendimento</span>
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Os horários vagos são garantidos em tempo real pelo sistema de regulação.
+                  Os horários vagos são garantidos em tempo real pelo sistema municipal.
                 </p>
               </div>
 
@@ -388,7 +576,7 @@ export const AgendamentoWizard: React.FC = () => {
             {loadingVagas ? (
               <div className="p-12 text-center text-sm text-slate-400 space-y-2">
                 <div className="w-7 h-7 border-3 border-sus-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-                <p>Verificando disponibilidade de vagas em tempo real...</p>
+                <p>Verificando disponibilidade de horários em tempo real...</p>
               </div>
             ) : vagasDisponiveis.length === 0 ? (
               <div className="p-8 text-center space-y-3 bg-slate-50 rounded-xl border border-slate-200">
@@ -397,7 +585,7 @@ export const AgendamentoWizard: React.FC = () => {
                   Nenhuma vaga disponível para {especialidadeSelecionada?.nome} nesta unidade no momento.
                 </p>
                 <p className="text-xs text-slate-400">
-                  Você pode voltar e selecionar outra Unidade Básica de Saúde com vagas abertas.
+                  Você pode voltar e selecionar outra Unidade Básica de Saúde que possui horários abertos.
                 </p>
                 <button onClick={() => setEtapa(1)} className="btn-secondary text-xs py-2 px-4">
                   Voltar e Escolher Outra UBS
@@ -408,13 +596,14 @@ export const AgendamentoWizard: React.FC = () => {
                 {/* Seleção de Datas Disponíveis */}
                 <div className="space-y-2">
                   <label className="block text-xs font-semibold text-slate-700">
-                    Selecione o Dia da Consulta:
+                    Selecione o Dia:
                   </label>
                   <div className="flex gap-2.5 overflow-x-auto pb-2">
                     {datasUnicasDisponiveis.map((dt) => {
                       const [ano, mes, dia] = dt.split('-').map(Number);
                       const dataObj = new Date(ano, mes - 1, dia);
                       const selecionado = dataSelecionada === dt;
+                      const qtdVagasDia = vagasDisponiveis.filter((v) => v.data.split('T')[0] === dt).length;
 
                       return (
                         <button
@@ -435,6 +624,9 @@ export const AgendamentoWizard: React.FC = () => {
                           </span>
                           <span className="block text-base font-bold">
                             {String(dia).padStart(2, '0')}/{String(mes).padStart(2, '0')}
+                          </span>
+                          <span className={`block text-[10px] mt-0.5 ${selecionado ? 'text-blue-100 font-semibold' : 'text-emerald-600 font-bold'}`}>
+                            {qtdVagasDia} {qtdVagasDia === 1 ? 'vaga' : 'vagas'}
                           </span>
                         </button>
                       );
@@ -521,10 +713,10 @@ export const AgendamentoWizard: React.FC = () => {
               type="button"
               disabled={!vagaSelecionada}
               onClick={() => setEtapa(3)}
-              className="btn-primary py-2.5 px-6 flex items-center gap-2 text-xs sm:text-sm font-semibold shadow-md"
+              className="btn-primary py-2.5 px-6 flex items-center gap-2 text-xs sm:text-sm font-semibold shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span>Avançar para Revisão</span>
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -542,7 +734,7 @@ export const AgendamentoWizard: React.FC = () => {
                 <span>Confira os Dados do seu Agendamento</span>
               </h2>
               <p className="text-xs text-slate-500">
-                Por favor, revise atentamente antes de efetivar a reserva.
+                Por favor, revise atentamente antes de efetivar a reserva no SUS.
               </p>
             </div>
 
@@ -563,13 +755,13 @@ export const AgendamentoWizard: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-3 border-b border-slate-200">
                 <div>
-                  <span className="text-slate-400 block text-xs">Especialidade Médica:</span>
+                  <span className="text-slate-400 block text-xs">Atendimento / Especialidade:</span>
                   <strong className="text-sus-primary font-bold text-base">
                     {vagaSelecionada.especialidade.nome}
                   </strong>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-xs">Unidade de Saúde:</span>
+                  <span className="text-slate-400 block text-xs">Unidade Básica de Saúde:</span>
                   <strong className="text-slate-800">{vagaSelecionada.ubs.nome}</strong>
                   <p className="text-[11px] text-slate-500">
                     {vagaSelecionada.ubs.logradouro}, {vagaSelecionada.ubs.bairro}
@@ -579,7 +771,7 @@ export const AgendamentoWizard: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <span className="text-slate-400 block text-xs">Data da Consulta:</span>
+                  <span className="text-slate-400 block text-xs">Data do Atendimento:</span>
                   <strong className="text-slate-800 text-sm">
                     {new Date(vagaSelecionada.data).toLocaleDateString('pt-BR', {
                       weekday: 'long',
@@ -590,7 +782,7 @@ export const AgendamentoWizard: React.FC = () => {
                   </strong>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-xs">Horário Previsto / Turno:</span>
+                  <span className="text-slate-400 block text-xs">Horário / Turno:</span>
                   <strong className="text-slate-800 text-sm">
                     {vagaSelecionada.horarioInicio} às {vagaSelecionada.horarioFim} (Turno da {vagaSelecionada.turno.toLowerCase()})
                   </strong>
@@ -598,11 +790,11 @@ export const AgendamentoWizard: React.FC = () => {
               </div>
             </div>
 
-            {/* Aviso de Pontualidade */}
+            {/* Aviso de Preparo e Pontualidade */}
             <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-xs text-amber-800">
               <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
               <span>
-                <strong>Atenção:</strong> Chegue à UBS com <strong>15 minutos de antecedência</strong> portando documento oficial com foto. Caso não possa comparecer, cancele pelo app com no mínimo 24h de antecedência para liberar a vaga a outro cidadão.
+                <strong>Atenção:</strong> Chegue à unidade com <strong>15 minutos de antecedência</strong> portando documento oficial com foto e Cartão SUS. Se for coleta de sangue em jejum, siga as orientações médicas prévias. Para cancelamento, utilize o aplicativo com no mínimo 24h de antecedência.
               </span>
             </div>
 

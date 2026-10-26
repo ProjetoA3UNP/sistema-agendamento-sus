@@ -40,6 +40,16 @@ export class VagasController {
     return this.vagasService.buscarDisponiveis(ubsId, especialidadeId, data, turno);
   }
 
+  @Post('popular-demonstracao')
+  @ApiOperation({
+    summary: 'Popular todas as UBSs com vagas de demonstração (Todas as 8 UBSs e 5 Especialidades)',
+    description: 'Recria as especialidades (incluindo Exames Básicos & Coleta) e gera centenas de vagas disponíveis para os próximos 10 dias úteis em todas as UBSs de Natal.',
+  })
+  @ApiResponse({ status: 200, description: 'Banco de dados populado com sucesso.' })
+  async popularDemonstracao() {
+    return this.vagasService.popularVagasDemonstracao();
+  }
+
   @Post('abertura-bloco')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.GESTOR)
