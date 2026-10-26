@@ -5,6 +5,12 @@ import { AccessibilityProvider } from './contexts/AccessibilityContext.js';
 import { Layout } from './components/Layout.js';
 import { ProtectedRoute } from './components/ProtectedRoute.js';
 import { Home } from './pages/Home.js';
+import { Login } from './pages/Login.js';
+import { Cadastro } from './pages/Cadastro.js';
+import { PainelCidadao } from './pages/PainelCidadao.js';
+import { AgendamentoWizard } from './pages/AgendamentoWizard.js';
+import { Comprovante } from './pages/Comprovante.js';
+import { MinhasConsultas } from './pages/MinhasConsultas.js';
 
 export const App: React.FC = () => {
   return (
@@ -15,28 +21,26 @@ export const App: React.FC = () => {
             <Route element={<Layout />}>
               {/* Rotas Públicas */}
               <Route path="/" element={<Home />} />
-              <Route path="/login" element={<div className="p-8 text-center text-slate-600">Tela de Login (Fase 6)</div>} />
-              <Route path="/cadastro" element={<div className="p-8 text-center text-slate-600">Tela de Cadastro (Fase 6)</div>} />
-              <Route path="/comprovante/:identificador" element={<div className="p-8 text-center text-slate-600">Comprovante Digital (Fase 6)</div>} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/cadastro" element={<Cadastro />} />
+              <Route path="/comprovante/:identificador" element={<Comprovante />} />
 
-              {/* Rotas Protegidas do Cidadão */}
+              {/* Rotas Protegidas do Cidadão (Telas 3 a 8 do Figma) */}
               <Route element={<ProtectedRoute allowedRoles={['CIDADAO', 'GESTOR', 'ATENDENTE']} />}>
-                <Route path="/painel" element={<div className="p-8 text-center text-slate-600">Dashboard do Cidadão (Fase 6)</div>} />
-                <Route path="/agendar" element={<div className="p-8 text-center text-slate-600">Fluxo de Agendamento em Etapas (Fase 6)</div>} />
-                <Route path="/minhas-consultas" element={<div className="p-8 text-center text-slate-600">Minhas Consultas & Histórico (Fase 6)</div>} />
+                <Route path="/painel" element={<PainelCidadao />} />
+                <Route path="/agendar" element={<AgendamentoWizard />} />
+                <Route path="/minhas-consultas" element={<MinhasConsultas />} />
               </Route>
 
-              {/* Rotas Protegidas do Atendente / Recepção da UBS */}
+              {/* Rotas Protegidas de Funcionários da UBS (Fase 7) */}
               <Route element={<ProtectedRoute allowedRoles={['ATENDENTE', 'GESTOR']} />}>
                 <Route path="/recepcao" element={<div className="p-8 text-center text-slate-600">Painel de Recepção & Triagem com Câmera QR (Fase 7)</div>} />
               </Route>
-
-              {/* Rotas Protegidas do Gestor da SMS */}
               <Route element={<ProtectedRoute allowedRoles={['GESTOR']} />}>
                 <Route path="/gestor" element={<div className="p-8 text-center text-slate-600">Painel Gestor da SMS (Fase 7)</div>} />
               </Route>
 
-              {/* Fallback */}
+              {/* Redirecionamento Padrão */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
