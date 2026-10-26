@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased font-sans;
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  /* Foco acessível para navegação por teclado (WCAG 2.4.7) */
+  :focus-visible {
+    @apply outline-none ring-2 ring-sus-primary ring-offset-2;
+  }
+}
+
+/* Modo de Alto Contraste (Acessibilidade e-MAG / WCAG) */
+body.high-contrast {
+  @apply bg-black text-yellow-300;
+}
+
+body.high-contrast a,
+body.high-contrast button {
+  @apply ring-2 ring-yellow-400 font-bold;
+}
+
+body.high-contrast .bg-white,
+body.high-contrast .bg-slate-50,
+body.high-contrast .bg-sus-light {
+  background-color: #000000 !important;
+  color: #ffff00 !important;
+  border-color: #ffff00 !important;
+}
+
+body.high-contrast .text-slate-600,
+body.high-contrast .text-slate-500,
+body.high-contrast .text-slate-700 {
+  color: #ffffff !important;
+}
+
+/* Estilos de Botão do SUS */
+.btn-primary {
+  @apply inline-flex items-center justify-center px-4 py-2.5 rounded-lg text-white bg-sus-primary hover:bg-sus-dark font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center px-4 py-2.5 rounded-lg text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 font-medium transition-colors text-sm sm:text-base;
+}
+
+.btn-green {
+  @apply inline-flex items-center justify-center px-4 py-2.5 rounded-lg text-white bg-sus-green hover:bg-emerald-700 font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base;
+}
+
+.btn-danger {
+  @apply inline-flex items-center justify-center px-4 py-2.5 rounded-lg text-white bg-sus-red hover:bg-red-700 font-medium transition-colors shadow-sm text-sm sm:text-base;
+}
+
+.card-sus {
+  @apply bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 sm:p-6;
+}
