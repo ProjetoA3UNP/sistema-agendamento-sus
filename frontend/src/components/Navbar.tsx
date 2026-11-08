@@ -11,6 +11,7 @@ import {
   ZoomOut,
   Hospital,
   ShieldCheck,
+  Stethoscope,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.js';
 import { useAccessibility } from '../contexts/AccessibilityContext.js';
@@ -119,6 +120,17 @@ export const Navbar: React.FC = () => {
                 >
                   <Hospital className="w-4 h-4 text-sus-green" />
                   <span>Recepção / Triagem</span>
+                </Link>
+              )}
+
+              {/* Links do Médico (Consultório) */}
+              {(user.perfil === 'MEDICO' || user.perfil === 'GESTOR') && (
+                <Link
+                  to="/consultorio"
+                  className="text-sm font-medium text-slate-700 hover:text-sus-primary px-2.5 py-1.5 rounded-md hover:bg-slate-50 flex items-center gap-1.5"
+                >
+                  <Stethoscope className="w-4 h-4 text-blue-600" />
+                  <span>Consultório</span>
                 </Link>
               )}
 

@@ -449,4 +449,361 @@ export class AgendamentosService {
       mensagem: 'Falta registrada com sucesso.',
     };
   }
+
+  /**
+   * Listar Agenda do Dia para a Recepção / Triagem da UBS (US05.1)
+   */
+  async listarAgendaDia(
+    ubsId?: string,
+    dataStr?: string,
+    status?: StatusAgendamento,
+    busca?: string,
+  ) {
+    let filtroData: Date | undefined = undefined;
+    if (dataStr) {
+      const [ano, mes, dia] = dataStr.split('-').map(Number);
+      filtroData = new Date(ano, mes - 1, dia);
+    } else {
+      const hoje = new Date();
+      filtroData = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+    }
+
+    const whereClause: any = {
+      vaga: {
+        data: filtroData,
+        ...(ubsId ? { ubsId } : {}),
+      },
+      ...(status ? { status } : {}),
+    };
+
+    if (busca && busca.trim().length > 0) {
+      const termo = busca.trim();
+      const termoLimpo = limparDocumento(termo);
+      whereClause.OR = [
+        { codigoProtocolo: { contains: termo } },
+        { paciente: { nome: { contains: termo } } },
+        ...(termoLimpo.length >= 3 ? [{ paciente: { cpf: { contains: termoLimpo } } }] : []),
+      ];
+    }
+
+    return this.prisma.agendamento.findMany({
+      where: whereClause,
+      include: {
+        vaga: {
+          include: {
+            ubs: true,
+            especialidade: true,
+            medico: {
+              select: { id: true, nome: true },
+            },
+          },
+        },
+        paciente: {
+          select: {
+            id: true,
+            nome: true,
+            cpf: true,
+            cartaoSus: true,
+            telefone: true,
+            bairro: true,
+            dataNascimento: true,
+          },
+        },
+      },
+      orderBy: [
+        { vaga: { horarioInicio: 'asc' } },
+      ],
+    });
+  }
+
+  /**
+   * Listar Fila do Consultório Médico (US06.1)
+   */
+  async listarFilaConsultorio(medicoId?: string, ubsId?: string, dataStr?: string) {
+    let filtroData: Date | undefined = undefined;
+    if (dataStr) {
+      const [ano, mes, dia] = dataStr.split('-').map(Number);
+      filtroData = new Date(ano, mes - 1, dia);
+    } else {
+      const hoje = new Date();
+      filtroData = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+    }
+
+    const whereClause: any = {
+      vaga: {
+        data: filtroData,
+        ...(ubsId ? { ubsId } : {}),
+        ...(medicoId ? { medicoId } : {}),
+      },
+      status: {
+        in: [
+          StatusAgendamento.CHECK_IN,
+          StatusAgendamento.EM_ATENDIMENTO,
+          StatusAgendamento.FINALIZADO,
+          StatusAgendamento.AGENDADO,
+        ],
+      },
+    };
+
+    const agendamentos = await this.prisma.agendamento.findMany({
+      where: whereClause,
+      include: {
+        vaga: {
+          include: {
+            ubs: true,
+            especialidade: true,
+            medico: { select: { id: true, nome: true } },
+          },
+        },
+        paciente: {
+          select: {
+            id: true,
+            nome: true,
+            cpf: true,
+            cartaoSus: true,
+            telefone: true,
+            bairro: true,
+            dataNascimento: true,
+          },
+        },
+      },
+      orderBy: [
+        { vaga: { horarioInicio: 'asc' } },
+      ],
+    });
+
+    const emAtendimento = agendamentos.filter((a) => a.status === StatusAgendamento.EM_ATENDIMENTO);
+    const filaEspera = agendamentos.filter((a) => a.status === StatusAgendamento.CHECK_IN);
+    const aguardandoChegada = agendamentos.filter((a) => a.status === StatusAgendamento.AGENDADO);
+    const finalizados = agendamentos.filter((a) => a.status === StatusAgendamento.FINALIZADO);
+
+    return {
+      total: agendamentos.length,
+      emAtendimento,
+      filaEspera,
+      aguardandoChegada,
+      finalizados,
+      todos: agendamentos,
+    };
+  }
+
+  /**
+   * Iniciar Atendimento Clínico (Médico / Dentista / Enfermeiro)
+   */
+  async iniciarAtendimento(agendamentoId: string, medicoId: string, ip?: string) {
+    const agendamento = await this.prisma.agendamento.findUnique({
+      where: { id: agendamentoId },
+      include: { paciente: true, vaga: true },
+    });
+
+    if (!agendamento) {
+      throw new NotFoundException('Agendamento não encontrado.');
+    }
+
+    if (
+      agendamento.status !== StatusAgendamento.CHECK_IN &&
+      agendamento.status !== StatusAgendamento.AGENDADO
+    ) {
+      throw new BadRequestException(
+        `Não é possível iniciar atendimento com status atual: ${agendamento.status}.`,
+      );
+    }
+
+    const atualizado = await this.prisma.agendamento.update({
+      where: { id: agendamentoId },
+      data: {
+        status: StatusAgendamento.EM_ATENDIMENTO,
+      },
+      include: {
+        paciente: true,
+        vaga: { include: { ubs: true, especialidade: true } },
+      },
+    });
+
+    await this.auditoria.registrar({
+      usuarioId: medicoId,
+      acao: 'INICIO_ATENDIMENTO_MEDICO',
+      entidade: 'Agendamento',
+      entidadeId: agendamento.id,
+      detalhesJson: {
+        paciente: agendamento.paciente.nome,
+        protocolo: agendamento.codigoProtocolo,
+      },
+      ip,
+    });
+
+    return {
+      mensagem: `Atendimento iniciado para o paciente ${agendamento.paciente.nome}.`,
+      agendamento: atualizado,
+    };
+  }
+
+  /**
+   * Finalizar Atendimento Clínico
+   */
+  async finalizarAtendimento(agendamentoId: string, medicoId: string, ip?: string) {
+    const agendamento = await this.prisma.agendamento.findUnique({
+      where: { id: agendamentoId },
+      include: { paciente: true, vaga: true },
+    });
+
+    if (!agendamento) {
+      throw new NotFoundException('Agendamento não encontrado.');
+    }
+
+    if (
+      agendamento.status !== StatusAgendamento.EM_ATENDIMENTO &&
+      agendamento.status !== StatusAgendamento.CHECK_IN
+    ) {
+      throw new BadRequestException(
+        `Apenas consultas 'Em Atendimento' ou com 'Check-in' podem ser finalizadas. Status atual: ${agendamento.status}.`,
+      );
+    }
+
+    const atualizado = await this.prisma.agendamento.update({
+      where: { id: agendamentoId },
+      data: {
+        status: StatusAgendamento.FINALIZADO,
+        finalizadoEm: new Date(),
+      },
+      include: {
+        paciente: true,
+        vaga: { include: { ubs: true, especialidade: true } },
+      },
+    });
+
+    await this.auditoria.registrar({
+      usuarioId: medicoId,
+      acao: 'FINALIZACAO_ATENDIMENTO_MEDICO',
+      entidade: 'Agendamento',
+      entidadeId: agendamento.id,
+      detalhesJson: {
+        paciente: agendamento.paciente.nome,
+        protocolo: agendamento.codigoProtocolo,
+      },
+      ip,
+    });
+
+    return {
+      mensagem: `Consulta finalizada com sucesso! Atendimento concluído.`,
+      agendamento: atualizado,
+    };
+  }
+
+  /**
+   * Métricas Consolidadas para o Gestor da SMS
+   */
+  async obterMetricasGestao() {
+    const [
+      totalAgendamentos,
+      agendados,
+      checkIns,
+      emAtendimento,
+      finalizados,
+      faltas,
+      cancelados,
+      totalVagas,
+      vagasDisponiveis,
+      vagasReservadas,
+      ubssComContagem,
+      especialidadesComContagem,
+      logsAuditoria,
+    ] = await Promise.all([
+      this.prisma.agendamento.count(),
+      this.prisma.agendamento.count({ where: { status: StatusAgendamento.AGENDADO } }),
+      this.prisma.agendamento.count({ where: { status: StatusAgendamento.CHECK_IN } }),
+      this.prisma.agendamento.count({ where: { status: StatusAgendamento.EM_ATENDIMENTO } }),
+      this.prisma.agendamento.count({ where: { status: StatusAgendamento.FINALIZADO } }),
+      this.prisma.agendamento.count({ where: { status: StatusAgendamento.FALTA } }),
+      this.prisma.agendamento.count({ where: { status: StatusAgendamento.CANCELADO } }),
+      this.prisma.vaga.count(),
+      this.prisma.vaga.count({ where: { status: StatusVaga.DISPONIVEL } }),
+      this.prisma.vaga.count({ where: { status: StatusVaga.RESERVADA } }),
+      this.prisma.ubs.findMany({
+        select: {
+          id: true,
+          nome: true,
+          bairro: true,
+          distritoSanitario: true,
+          _count: {
+            select: {
+              vagas: true,
+            },
+          },
+        },
+      }),
+      this.prisma.especialidade.findMany({
+        select: {
+          id: true,
+          nome: true,
+          _count: {
+            select: {
+              vagas: true,
+            },
+          },
+        },
+      }),
+      this.prisma.logAuditoria.findMany({
+        take: 15,
+        orderBy: { criadoEm: 'desc' },
+        include: {
+          usuario: {
+            select: {
+              id: true,
+              nome: true,
+              email: true,
+              perfil: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const totalPresencas = checkIns + emAtendimento + finalizados;
+    const taxaAbsenteismo =
+      totalAgendamentos > 0 ? Number(((faltas / totalAgendamentos) * 100).toFixed(1)) : 0;
+    const taxaPresenca =
+      totalAgendamentos > 0 ? Number(((totalPresencas / totalAgendamentos) * 100).toFixed(1)) : 0;
+
+    return {
+      kpis: {
+        totalAgendamentos,
+        agendados,
+        checkIns,
+        emAtendimento,
+        finalizados,
+        faltas,
+        cancelados,
+        taxaAbsenteismo,
+        taxaPresenca,
+        totalVagas,
+        vagasDisponiveis,
+        vagasReservadas,
+      },
+      distribuicaoUbs: ubssComContagem,
+      distribuicaoEspecialidade: especialidadesComContagem,
+      ultimosLogs: logsAuditoria,
+    };
+  }
+
+  /**
+   * Trilha de Auditoria LGPD para o Gestor
+   */
+  async listarLogsAuditoria(limite = 30) {
+    return this.prisma.logAuditoria.findMany({
+      take: Math.min(limite, 100),
+      orderBy: { criadoEm: 'desc' },
+      include: {
+        usuario: {
+          select: {
+            id: true,
+            nome: true,
+            cpf: true,
+            email: true,
+            perfil: true,
+          },
+        },
+      },
+    });
+  }
 }

@@ -11,6 +11,9 @@ import { PainelCidadao } from './pages/PainelCidadao.js';
 import { AgendamentoWizard } from './pages/AgendamentoWizard.js';
 import { Comprovante } from './pages/Comprovante.js';
 import { MinhasConsultas } from './pages/MinhasConsultas.js';
+import { PainelRecepcao } from './pages/PainelRecepcao.js';
+import { PainelConsultorio } from './pages/PainelConsultorio.js';
+import { PainelGestor } from './pages/PainelGestor.js';
 
 export const App: React.FC = () => {
   return (
@@ -32,12 +35,15 @@ export const App: React.FC = () => {
                 <Route path="/minhas-consultas" element={<MinhasConsultas />} />
               </Route>
 
-              {/* Rotas Protegidas de Funcionários da UBS (Fase 7) */}
+              {/* Rotas Protegidas de Funcionários da UBS e Gestão (Fase 7) */}
               <Route element={<ProtectedRoute allowedRoles={['ATENDENTE', 'GESTOR']} />}>
-                <Route path="/recepcao" element={<div className="p-8 text-center text-slate-600">Painel de Recepção & Triagem com Câmera QR (Fase 7)</div>} />
+                <Route path="/recepcao" element={<PainelRecepcao />} />
+              </Route>
+              <Route element={<ProtectedRoute allowedRoles={['MEDICO', 'GESTOR']} />}>
+                <Route path="/consultorio" element={<PainelConsultorio />} />
               </Route>
               <Route element={<ProtectedRoute allowedRoles={['GESTOR']} />}>
-                <Route path="/gestor" element={<div className="p-8 text-center text-slate-600">Painel Gestor da SMS (Fase 7)</div>} />
+                <Route path="/gestor" element={<PainelGestor />} />
               </Route>
 
               {/* Redirecionamento Padrão */}

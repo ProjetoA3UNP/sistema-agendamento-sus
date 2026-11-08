@@ -21,6 +21,8 @@ export const Login: React.FC = () => {
       const usuario = await login(identificador, senha);
       if (usuario.perfil === 'ATENDENTE') {
         navigate('/recepcao');
+      } else if (usuario.perfil === 'MEDICO') {
+        navigate('/consultorio');
       } else if (usuario.perfil === 'GESTOR') {
         navigate('/gestor');
       } else {

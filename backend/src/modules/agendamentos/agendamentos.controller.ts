@@ -8,11 +8,12 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Role, StatusAgendamento } from '@prisma/client';
 import { AgendamentosService } from './agendamentos.service.js';
 import { AgendarConsultaDto } from './dto/agendar-consulta.dto.js';
 import { CancelarConsultaDto } from './dto/cancelar-consulta.dto.js';
@@ -134,5 +135,96 @@ export class AgendamentosController {
     @Ip() ip: string,
   ) {
     return this.agendamentosService.registrarFalta(id, user.id, ip);
+  }
+
+  @Get('agenda-dia')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ATENDENTE, Role.GESTOR, Role.MEDICO)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Listar agenda do dia para a recepção da UBS',
+    description: 'Retorna a lista de consultas agendadas filtradas por UBS, data e status.',
+  })
+  async listarAgendaDia(
+    @Query('ubsId') ubsId?: string,
+    @Query('data') data?: string,
+    @Query('status') status?: StatusAgendamento,
+    @Query('busca') busca?: string,
+  ) {
+    return this.agendamentosService.listarAgendaDia(ubsId, data, status, busca);
+  }
+
+  @Get('fila-consultorio')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.MEDICO, Role.GESTOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Fila de pacientes do consultório médico',
+    description: 'Retorna a lista de pacientes com check-in, em atendimento ou agendados.',
+  })
+  async listarFilaConsultorio(
+    @CurrentUser() user: UsuarioAutenticado,
+    @Query('ubsId') ubsId?: string,
+    @Query('data') data?: string,
+  ) {
+    const medicoId = user.perfil === Role.MEDICO ? user.id : undefined;
+    return this.agendamentosService.listarFilaConsultorio(medicoId, ubsId, data);
+  }
+
+  @Patch(':id/iniciar-atendimento')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.MEDICO, Role.GESTOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Iniciar atendimento do paciente no consultório',
+    description: 'Atualiza o status para EM_ATENDIMENTO.',
+  })
+  async iniciarAtendimento(
+    @Param('id') id: string,
+    @CurrentUser() user: UsuarioAutenticado,
+    @Ip() ip: string,
+  ) {
+    return this.agendamentosService.iniciarAtendimento(id, user.id, ip);
+  }
+
+  @Patch(':id/finalizar-atendimento')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.MEDICO, Role.GESTOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Finalizar atendimento médico',
+    description: 'Atualiza o status para FINALIZADO com carimbo de data/hora.',
+  })
+  async finalizarAtendimento(
+    @Param('id') id: string,
+    @CurrentUser() user: UsuarioAutenticado,
+    @Ip() ip: string,
+  ) {
+    return this.agendamentosService.finalizarAtendimento(id, user.id, ip);
+  }
+
+  @Get('metricas-gestao')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.GESTOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Métricas gerais da Secretaria de Saúde (Painel Gestor)',
+    description: 'Retorna totais consolidados, absenteísmo, distribuição por UBS e distrito.',
+  })
+  async obterMetricasGestao() {
+    return this.agendamentosService.obterMetricasGestao();
+  }
+
+  @Get('auditoria-logs')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.GESTOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Trilha de auditoria LGPD (Painel Gestor)',
+    description: 'Retorna os últimos registros de ações sensíveis executadas no sistema.',
+  })
+  async listarLogsAuditoria(@Query('limite') limite?: string) {
+    const lim = limite ? parseInt(limite, 10) : 30;
+    return this.agendamentosService.listarLogsAuditoria(lim);
   }
 }

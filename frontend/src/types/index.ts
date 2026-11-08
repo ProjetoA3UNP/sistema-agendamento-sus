@@ -95,3 +95,51 @@ export interface Agendamento {
   vaga: Vaga;
   paciente?: Usuario;
 }
+
+export interface LogAuditoria {
+  id: string;
+  usuarioId?: string | null;
+  acao: string;
+  entidade: string;
+  entidadeId?: string | null;
+  detalhesJson?: string | null;
+  ip?: string | null;
+  criadoEm: string;
+  usuario?: {
+    id: string;
+    nome: string;
+    email: string;
+    perfil: Role;
+    cpf?: string;
+  } | null;
+}
+
+export interface MetricasGestao {
+  kpis: {
+    totalAgendamentos: number;
+    agendados: number;
+    checkIns: number;
+    emAtendimento: number;
+    finalizados: number;
+    faltas: number;
+    cancelados: number;
+    taxaAbsenteismo: number;
+    taxaPresenca: number;
+    totalVagas: number;
+    vagasDisponiveis: number;
+    vagasReservadas: number;
+  };
+  distribuicaoUbs: Array<{
+    id: string;
+    nome: string;
+    bairro: string;
+    distritoSanitario: DistritoSanitario;
+    _count: { vagas: number };
+  }>;
+  distribuicaoEspecialidade: Array<{
+    id: string;
+    nome: string;
+    _count: { vagas: number };
+  }>;
+  ultimosLogs: LogAuditoria[];
+}
